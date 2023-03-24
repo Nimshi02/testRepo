@@ -1,2 +1,7 @@
 Flask
 Gunicorn
+pandas
+IPython
+keras
+tensorflow
+firebase_admin
