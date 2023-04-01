@@ -11,24 +11,17 @@ from firebase_admin import credentials
 from firebase_admin import db
 from firebase_admin import firestore
 from IPython.core.display import set_matplotlib_formats
+from sklearn.preprocessing import MinMaxScaler
 from flask import Flask, jsonify
-
-app = Flask(__name__)
-
-
-#Load the database
+# #Load the database
 df=pd.read_json("ingredient_and_instructions.json")
-
-#Initialize recipes variable
+# #Initialize recipes variable
 recipes = {}
-
-#Initialize the new recipe to be added to the recipe
+# #Initialize the new recipe to be added to the recipe
 new_recipe = {}
-
-#Define the quantity 
+# #Define the quantity 
 quantity=0
-
-#Create the recipes array
+# #clean the recipe array
 for items in df:
   new_recipe = {}
   itemName=items
@@ -40,7 +33,7 @@ for items in df:
       primary_unit = ingredient["primary_unit"]
       metric_unit = ingredient["metric_unit"]
       if metric_unit is not None:
-        quantity=int(metric_unit["quantity"])
+        quantity=float(metric_unit["quantity"])
       else:
         if primary_unit is not None:
           if primary_unit["display"] is None:
@@ -50,7 +43,7 @@ for items in df:
                 string_value = str(primary_unit["quantity"])
                 cleaned_string = re.sub(r'[^\d.]', '', string_value)
                 if cleaned_string:
-                  int_value = int(cleaned_string)
+                  int_value = float(cleaned_string)
                   quantity=int_value*5
             else:
               if primary_unit["display"] == "tablespoon" or primary_unit["display"] == "tablespoons":
@@ -58,7 +51,7 @@ for items in df:
                   string_value = str(primary_unit["quantity"])
                   cleaned_string = re.sub(r'[^\d.]', '', string_value)
                   if cleaned_string:
-                    int_value = int(cleaned_string)
+                    int_value = float(cleaned_string)
                     quantity=int_value*15
         else:
          quantity=2
@@ -66,136 +59,130 @@ for items in df:
       new_amount = quantity
       new_recipe[new_ingredient] = new_amount
   recipes[itemName] = new_recipe
+
 print(recipes)
-
-
-recipe_names = list(recipes.keys())
-
-# Find the unique ingredients in all the recipes
 all_ingredients = set()
 for recipe in recipes.values():
-    for ingredient in recipe.keys():
-        all_ingredients.add(ingredient)
+    all_ingredients.update(recipe.keys())
 
-all_ingredients = list(all_ingredients)
+#Create the numpy array of recipes
+recipe_names = list(recipes.keys())
+num_recipes = len(recipe_names)
+print(num_recipes)
+num_ingredients = len(all_ingredients)
+for ingredient in all_ingredients:
+  print(ingredient)
+print(num_ingredients)
+recipe_matrix = np.zeros((num_recipes, num_ingredients))
 
-# Convert the table of recipes to a numpy array
-recipes_array = []
-for recipe in recipes.values():
-    recipe_ingredients = []
-    for ingredient in all_ingredients:
-        if ingredient in recipe:
-            recipe_ingredients.append(recipe[ingredient])
-        else:
-            recipe_ingredients.append(0)
-    recipes_array.append(recipe_ingredients)
+ingredient_to_index = {ingredient: i for i, ingredient in enumerate(all_ingredients)}
+for i, recipe_name in enumerate(recipe_names):
+    recipe = recipes[recipe_name]
+    for ingredient, quantity in recipe.items():
+        j = ingredient_to_index[ingredient]
+        recipe_matrix[i, j] = quantity
 
-recipes_array = np.array(recipes_array)
+scaler = MinMaxScaler()
+recipe_matrix = scaler.fit_transform(recipe_matrix)
+print(recipe_matrix)
 
-# Define the neural network
+# # Define the neural network
 model = Sequential()
 model.add(Dense(8, input_dim=len(all_ingredients), activation='relu'))
 model.add(Dense(4, activation='relu'))
 model.add(Dense(len(recipe_names), activation='softmax'))
 
-# Compile the model
+# # # Compile the model
 model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-# Fit the model to the data
+# # # Fit the model to the data
 labels = to_categorical(np.arange(len(recipe_names)), len(recipe_names))
-model.fit(recipes_array, labels, epochs=10, batch_size=1)
+model.fit(recipe_matrix, labels, epochs=10, batch_size=10)
 
-
-########################
-cred = credentials.Certificate('newProject-service.json')
-if len(firebase_admin._apps) == 0:
-    firebase_admin.initialize_app(cred)
-    print("Firebase connection established.")
-else:
-    print("Firebase connection not established.")
-
-db = firestore.client()
-collection_ref = db.collection("Ingredients")
-
-docs = collection_ref.get()
-
-#creating a dictionary to store the firebase derived values 
-posess_ingredients={}
-
-# Iterate over the documents and print their data
-for doc in docs:
- qty = doc.get("Qty")
- name=doc.get("ItemName")
- expireDate=doc.get("Expiredate")
- days_to_expire = (datetime.datetime.strptime(expireDate, "%d/%m/%Y") - datetime.datetime.today()).days
- newIngredient={"expire_date":days_to_expire,"qty":qty}
- posess_ingredients.update({name:newIngredient})
-print(posess_ingredients)
-
-
-
-# Check if the ingredients entered by the user are sufficient to create one of the recipes
-ingredient_array = []
-for ingredient in all_ingredients:
-    if ingredient in posess_ingredients:
-        ingredient_array.append(posess_ingredients[ingredient]["qty"])
-    else:
-        ingredient_array.append(0)
-        
-ingredient_array = np.array([ingredient_array])
-
-results = model.predict(ingredient_array)
-
-# @app.route('/predict-recipes', methods=['GET'])
-# def predict_recipes():
-  
-# satisfied_recipes = []
-# for index, result in enumerate(results[0]):
-#     satisfied_recipes.append((recipe_names[index], result))
-
-# if len(satisfied_recipes) > 0.5:
-#     print("The following recipes are likely to be satisfied by the remaining ingredients:")
-#     # Sort the satisfied_recipes based on the ascending order of the possessed ingredient's expire date
-#     very_distant_date = datetime.datetime.max.replace(year=9999)
-
-#     sorted_recipes = sorted(satisfied_recipes, key=lambda x: posess_ingredients.get(x[0], {}).get("expire_date", very_distant_date))
-#     for recipe in sorted_recipes:
-#         if recipe[1] > 0:
-#             print(recipe[0])
-#             for ingredient, quantity in recipes[recipe[0]].items():
-#                 print(ingredient, quantity)
-#     print()
-# else:
-#     print("No recipes are likely to be satisfied")
-
+app = Flask(__name__)
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
-    
+# # # get the user ingredients and create a dictionary
+# # ########################
+#Get the user creadentials
+  cred = credentials.Certificate('newProject-service.json')
+  if len(firebase_admin._apps) == 0:
+      firebase_admin.initialize_app(cred)
+      print("Firebase connection not established.")
+  else:
+      print("Firebase connection established.")
 
-    satisfied_recipes = []
-    for index, result in enumerate(results[0]):
-        satisfied_recipes.append((recipe_names[index], result))
+  db = firestore.client()
+  collection_ref = db.collection("Ingredients")
 
-    if len(satisfied_recipes) > 0.5:
-        # Sort the satisfied_recipes based on the ascending order of the possessed ingredient's expire date
-        very_distant_date = datetime.datetime.max.replace(year=9999)
-        sorted_recipes = sorted(satisfied_recipes, key=lambda x: posess_ingredients.get(x[0], {}).get("expire_date", very_distant_date))
-        
-        # Create a dictionary to store the recipe names and ingredients
-        response = {}
-        for recipe in sorted_recipes:
-            if recipe[1] > 0:
-                recipe_name = recipe[0]
-                recipe_ingredients = []
-                for ingredient, quantity in recipes[recipe_name].items():
-                    recipe_ingredients.append({'name': ingredient, 'quantity': quantity})
-                response[recipe_name] = recipe_ingredients
-        
-        # Return the response as JSON
-        return jsonify(response)
-    else:
-        # Return a message indicating that no recipes are likely to be satisfied
-        return jsonify({'message': 'No recipes are likely to be satisfied'})
+  docs = collection_ref.get()
 
+  #creating a dictionary to store the firebase derived values 
+  posess_ingredients={}
+
+  # Iterate over the documents and print their data
+  for doc in docs:
+      qty = doc.get("Qty")
+      name = doc.get("ItemName")
+      expire_date_str = doc.get("Expiredate")
+      expire_date = datetime.datetime.strptime(expire_date_str, '%d/%m/%Y')
+      days_to_expire = (expire_date - datetime.datetime.today()).days
+      newIngredient = {"expiration_date": days_to_expire, "quantity": qty}
+      posess_ingredients.update({name: newIngredient})
+  user_ingredients=posess_ingredients
+  print(user_ingredients)
+  #create numpy array of user_ingredients
+  user_vector = np.zeros((1, len(all_ingredients)))
+  for i, ingredient in enumerate(all_ingredients):
+      if ingredient in user_ingredients:
+          user_vector[0, i] = user_ingredients[ingredient]['quantity']
+  recipes_array = np.array(user_vector)
+  print(recipes_array)
+
+  # Multiply user vector by trained recipe matrix 
+  scores = np.dot(recipes_array, recipe_matrix.T)[0]
+  print(scores)
+
+  # Get top scoring recipes
+  top_indices = np.argsort(scores)[::-1][:10]
+
+  # Get names of top-scoring recipes
+  top_recipes = []
+  for index in top_indices:
+      top_recipes.append(recipe_names[index])
+  print(top_recipes)
+
+
+  # For each top-scoring recipe, calculate the expiration date of its ingredients
+  # Get names of top-scoring recipes
+  recipe_expiration_dates = {}
+  for recipe_name in recipe_names:
+      recipe = recipes[recipe_name]
+      recipe_expiration_dates[recipe_name] = min([user_ingredients.get(ingredient, {'expiration_date': float('inf')})['expiration_date'] for ingredient in recipe.keys()])
+  print(recipe_expiration_dates)
+  # Sort the top recipes by their expiration date
+  sorted_top_recipes = sorted(top_recipes, key=lambda x: recipe_expiration_dates[x])
+
+  # Print the top recipes in order of expiration date
+  payload=[]
+  for recipe_name in sorted_top_recipes:
+      
+      ingredients=recipes[recipe_name]
+      # print(recipe_name, recipe_expiration_dates[recipe_name])
+      for items in df:
+          itemName=items
+          if itemName == recipe_name :
+            instructions=df[items]["instructions"]
+            break
+      recipe_item = {
+        "name": recipe_name,
+        "ingredients": [
+          ingredients
+        ],
+        "instructions": instructions
+        }
+      payload.append(recipe_item)
+  json_payload = json.dumps(payload)
+  return jsonify(payload)
 if __name__ == '__main__':
     app.run(host='localhost', port=5000,debug=False)
