@@ -69,9 +69,6 @@ recipe_names = list(recipes.keys())
 num_recipes = len(recipe_names)
 print(num_recipes)
 num_ingredients = len(all_ingredients)
-for ingredient in all_ingredients:
-  print(ingredient)
-print(num_ingredients)
 recipe_matrix = np.zeros((num_recipes, num_ingredients))
 
 ingredient_to_index = {ingredient: i for i, ingredient in enumerate(all_ingredients)}
@@ -80,10 +77,6 @@ for i, recipe_name in enumerate(recipe_names):
     for ingredient, quantity in recipe.items():
         j = ingredient_to_index[ingredient]
         recipe_matrix[i, j] = quantity
-
-scaler = MinMaxScaler()
-recipe_matrix = scaler.fit_transform(recipe_matrix)
-print(recipe_matrix)
 
 # # Define the neural network
 model = Sequential()
