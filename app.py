@@ -11,7 +11,6 @@ from firebase_admin import credentials
 from firebase_admin import db
 from firebase_admin import firestore
 from IPython.core.display import set_matplotlib_formats
-from sklearn.preprocessing import MinMaxScaler
 from flask import Flask, jsonify
 # #Load the database
 df=pd.read_json("ingredient_and_instructions.json")
