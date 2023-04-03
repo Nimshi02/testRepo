@@ -172,7 +172,6 @@ def get_recipes():
           ingredients
         ],
         "instructions": instructions
-	"user_ingredients": recipes_array
         }
       payload.append(recipe_item)
   json_payload = json.dumps(payload)
